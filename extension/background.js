@@ -15,6 +15,13 @@ let ws = null;
 let reconnectTimer = null;
 let authenticated = false;
 
+// Ensure keepAlive alarm exists every time SW starts (not just onInstalled)
+chrome.alarms.get('keepAlive', (alarm) => {
+  if (!alarm) {
+    chrome.alarms.create('keepAlive', { periodInMinutes: 0.33 });
+  }
+});
+
 // ─────────────────────────────────────────────
 // WebSocket lifecycle
 // ─────────────────────────────────────────────
@@ -95,8 +102,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     chrome.storage.local.get('status');
     // Ensure WebSocket is connected
     connect();
-    // Send ping if connected to keep WS alive
-    if (ws && ws.readyState === WebSocket.OPEN) {
+    // Send ping only if already connected and authenticated
+    if (ws && ws.readyState === WebSocket.OPEN && authenticated) {
       send({ type: 'PING', requestId: 'ping-' + Date.now() });
     }
   }
@@ -565,5 +572,9 @@ chrome.commands.onCommand.addListener(async (command) => {
 // ─────────────────────────────────────────────
 // Startup
 // ─────────────────────────────────────────────
+
+chrome.runtime.onStartup.addListener(() => {
+  connect();
+});
 
 connect();
