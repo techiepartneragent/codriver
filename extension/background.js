@@ -410,6 +410,9 @@ async function appendLog(entry) {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'CAPTCHA_DETECTED') {
+    // Generate a single requestId for this CAPTCHA event
+    const captchaRequestId = 'captcha-' + Date.now();
+
     // 1. Add to pending actions as CAPTCHA type
     chrome.storage.local.get(['pendingActions', 'actionLog'], (r) => {
       const pending = r.pendingActions || [];
@@ -419,7 +422,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const alreadyPending = pending.some(a => a.type === 'CAPTCHA_DETECTED' && a.url === msg.url);
       if (!alreadyPending) {
         const captchaAction = {
-          requestId: 'captcha-' + Date.now(),
+          requestId: captchaRequestId,
           type: 'CAPTCHA_DETECTED',
           url: msg.url,
           title: msg.title,
@@ -433,13 +436,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     });
 
-    // 2. Open side panel to alert user
+    // 2. Wait for user approval then send CAPTCHA_RESOLVED to MCP server
+    waitForApproval(captchaRequestId).then(approved => {
+      if (approved) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          send({ type: 'CAPTCHA_RESOLVED', url: msg.url });
+        }
+        appendLog({ requestId: captchaRequestId, type: 'CAPTCHA_RESOLVED', status: 'approved' });
+      }
+    });
+
+    // 3. Open side panel to alert user
     if (sender && sender.tab) {
       chrome.sidePanel.open({ tabId: sender.tab.id }).catch(() => {});
     }
 
-    // 3. Show browser notification
-    chrome.notifications.create('captcha-' + Date.now(), {
+    // 4. Show browser notification
+    chrome.notifications.create(captchaRequestId, {
       type: 'basic',
       iconUrl: 'icons/icon48.png',
       title: '🛑 CoDriver: CAPTCHA Detected',
@@ -447,13 +460,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       priority: 2,
     });
 
-    // 4. Send to MCP server so AI knows to pause
+    // 5. Send to MCP server so AI knows to pause
     if (ws && ws.readyState === WebSocket.OPEN) {
       send({
         type: 'CAPTCHA_DETECTED',
         url: msg.url,
         title: msg.title,
-        requestId: 'captcha-' + Date.now(),
+        requestId: captchaRequestId,
       });
     }
 
@@ -464,15 +477,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'APPROVE' || msg.type === 'BLOCK') {
     chrome.storage.local.get(['approvals', 'pendingActions']).then(({ approvals = {}, pendingActions = [] }) => {
       approvals[msg.requestId] = msg.type === 'APPROVE' ? 'approve' : 'block';
-
-      // If approving a CAPTCHA action, notify MCP server to resume
-      const action = pendingActions.find(a => a.requestId === msg.requestId);
-      if (action && action.type === 'CAPTCHA_DETECTED' && msg.type === 'APPROVE') {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          send({ type: 'CAPTCHA_RESOLVED', url: action.url });
-        }
-      }
-
       chrome.storage.local.set({ approvals });
     });
     sendResponse({ ok: true });
