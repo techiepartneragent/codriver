@@ -39,11 +39,16 @@ wss.on('connection', (ws) => {
       // Handle auth handshake (first message must be AUTH)
       if (!authenticated) {
         if (msg.type === 'AUTH' && msg.token === AUTH_TOKEN) {
-          authenticated = true;
-          ws.send(JSON.stringify({ type: 'AUTH_OK' }));
-          process.stderr.write('[CoDriver] Extension authenticated\n');
-          // Set as active socket only after auth
-          extensionSocket = ws;
+          if (extensionSocket && extensionSocket.readyState === WebSocket.OPEN) {
+            // Already have an extension connected — reject this one
+            ws.send(JSON.stringify({ type: 'AUTH_FAIL', reason: 'Extension already connected' }));
+            ws.close();
+          } else {
+            authenticated = true;
+            extensionSocket = ws;
+            ws.send(JSON.stringify({ type: 'AUTH_OK' }));
+            process.stderr.write('[CoDriver] Extension authenticated\n');
+          }
         } else {
           ws.send(JSON.stringify({ type: 'AUTH_FAIL', reason: 'Invalid token' }));
           process.stderr.write('[CoDriver] Extension auth failed — closing\n');

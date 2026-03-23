@@ -23,9 +23,12 @@ function detectCaptcha() {
   return signals.some(Boolean);
 }
 
-// Check on page load and after DOM changes
+let captchaReported = false;
+
 function checkForCaptcha() {
+  if (captchaReported) return; // already reported for this page
   if (detectCaptcha()) {
+    captchaReported = true; // set flag immediately
     chrome.runtime.sendMessage({ type: 'CAPTCHA_DETECTED', url: location.href, title: document.title });
   }
 }
@@ -33,8 +36,13 @@ function checkForCaptcha() {
 // Run on load
 checkForCaptcha();
 
-// Watch for dynamic CAPTCHA injection
-const captchaObserver = new MutationObserver(() => checkForCaptcha());
+// Debounced observer - wait 500ms after DOM settles before checking
+let debounceTimer = null;
+const captchaObserver = new MutationObserver(() => {
+  if (captchaReported) return;
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(checkForCaptcha, 500);
+});
 captchaObserver.observe(document.body, { childList: true, subtree: true });
 
 // ─────────────────────────────────────────────
