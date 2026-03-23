@@ -391,10 +391,71 @@ async function appendLog(entry) {
 // Message handler from side panel
 // ─────────────────────────────────────────────
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'CAPTCHA_DETECTED') {
+    // 1. Add to pending actions as CAPTCHA type
+    chrome.storage.local.get(['pendingActions', 'actionLog'], (r) => {
+      const pending = r.pendingActions || [];
+      const log = r.actionLog || [];
+
+      // Avoid duplicate CAPTCHA entries for same URL
+      const alreadyPending = pending.some(a => a.type === 'CAPTCHA_DETECTED' && a.url === msg.url);
+      if (!alreadyPending) {
+        const captchaAction = {
+          requestId: 'captcha-' + Date.now(),
+          type: 'CAPTCHA_DETECTED',
+          url: msg.url,
+          title: msg.title,
+          timestamp: Date.now(),
+          status: 'waiting',
+        };
+        pending.unshift(captchaAction);
+        log.unshift({ ...captchaAction, status: 'captcha-detected' });
+        chrome.storage.local.set({ pendingActions: pending, actionLog: log });
+        chrome.runtime.sendMessage({ type: 'PENDING_UPDATED' }).catch(() => {});
+      }
+    });
+
+    // 2. Open side panel to alert user
+    if (sender && sender.tab) {
+      chrome.sidePanel.open({ tabId: sender.tab.id }).catch(() => {});
+    }
+
+    // 3. Show browser notification
+    chrome.notifications.create('captcha-' + Date.now(), {
+      type: 'basic',
+      iconUrl: 'icons/icon48.png',
+      title: '🛑 CoDriver: CAPTCHA Detected',
+      message: 'Human needed! CAPTCHA found on ' + (msg.title || 'page') + '. Open side panel to approve.',
+      priority: 2,
+    });
+
+    // 4. Send to MCP server so AI knows to pause
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      send({
+        type: 'CAPTCHA_DETECTED',
+        url: msg.url,
+        title: msg.title,
+        requestId: 'captcha-' + Date.now(),
+      });
+    }
+
+    sendResponse({ ok: true });
+    return true;
+  }
+
   if (msg.type === 'APPROVE' || msg.type === 'BLOCK') {
-    chrome.storage.local.get('approvals').then(({ approvals = {} }) => {
+    chrome.storage.local.get(['approvals', 'pendingActions']).then(({ approvals = {}, pendingActions = [] }) => {
       approvals[msg.requestId] = msg.type === 'APPROVE' ? 'approve' : 'block';
+
+      // If approving a CAPTCHA action, notify MCP server to resume
+      const action = pendingActions.find(a => a.requestId === msg.requestId);
+      if (action && action.type === 'CAPTCHA_DETECTED' && msg.type === 'APPROVE') {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          send({ type: 'CAPTCHA_RESOLVED', url: action.url });
+        }
+      }
+
       chrome.storage.local.set({ approvals });
     });
     sendResponse({ ok: true });

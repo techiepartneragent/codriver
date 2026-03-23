@@ -209,6 +209,50 @@
 
     .pending-card.highlight { border-color: var(--indigo); }
 
+    /* ── CAPTCHA card ── */
+    .pending-card.captcha-card {
+      border-color: var(--red);
+      background: rgba(239, 68, 68, 0.07);
+    }
+
+    .captcha-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .captcha-icon {
+      font-size: 20px;
+      line-height: 1;
+    }
+
+    .captcha-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--red);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .captcha-page {
+      font-size: 11.5px;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+      word-break: break-all;
+    }
+
+    .captcha-instruction {
+      font-size: 12px;
+      color: var(--amber);
+      margin-bottom: 10px;
+      line-height: 1.5;
+    }
+
+    .captcha-card .action-btns {
+      grid-template-columns: 1fr;
+    }
+
     .pending-action-label {
       font-size: 11px;
       text-transform: uppercase;

@@ -5,6 +5,42 @@
  * click, and type operations.
  */
 
+// ─────────────────────────────────────────────
+// CAPTCHA Detection
+// ─────────────────────────────────────────────
+
+// Detect common CAPTCHA patterns on page
+function detectCaptcha() {
+  const signals = [
+    document.querySelector('iframe[src*="recaptcha"]'),
+    document.querySelector('iframe[src*="hcaptcha"]'),
+    document.querySelector('.g-recaptcha'),
+    document.querySelector('.h-captcha'),
+    document.querySelector('[data-sitekey]'),
+    document.querySelector('iframe[title*="captcha" i]'),
+    document.querySelector('iframe[title*="challenge" i]'),
+  ];
+  return signals.some(Boolean);
+}
+
+// Check on page load and after DOM changes
+function checkForCaptcha() {
+  if (detectCaptcha()) {
+    chrome.runtime.sendMessage({ type: 'CAPTCHA_DETECTED', url: location.href, title: document.title });
+  }
+}
+
+// Run on load
+checkForCaptcha();
+
+// Watch for dynamic CAPTCHA injection
+const captchaObserver = new MutationObserver(() => checkForCaptcha());
+captchaObserver.observe(document.body, { childList: true, subtree: true });
+
+// ─────────────────────────────────────────────
+// Message listener
+// ─────────────────────────────────────────────
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   try {
     switch (msg.type) {

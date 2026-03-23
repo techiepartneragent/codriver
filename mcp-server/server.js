@@ -7,7 +7,11 @@ import {
 import { WebSocketServer } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 
-// ─── WebSocket Bridge ────────────────────────────────────────────────────────
+// ─── CAPTCHA State ───────────────────────────────────────────────────────────
+let captchaDetected = false;
+let captchaUrl = null;
+
+
 
 const WS_PORT = 39571;
 let extensionSocket = null;
@@ -56,6 +60,22 @@ wss.on('connection', (ws) => {
         } else {
           pending.reject(new Error(msg.error || 'Extension returned failure'));
         }
+      } else {
+        // Handle unsolicited messages from extension
+        switch (msg.type) {
+          case 'CAPTCHA_DETECTED':
+            captchaDetected = true;
+            captchaUrl = msg.url;
+            process.stderr.write(`[CoDriver] CAPTCHA detected at: ${msg.url}\n`);
+            break;
+          case 'CAPTCHA_RESOLVED':
+            captchaDetected = false;
+            captchaUrl = null;
+            process.stderr.write('[CoDriver] CAPTCHA resolved — resuming AI\n');
+            break;
+          default:
+            break;
+        }
       }
     } catch (e) {
       process.stderr.write(`[CoDriver] WS parse error: ${e.message}\n`);
@@ -86,6 +106,13 @@ wss.on('connection', (ws) => {
  */
 function sendToExtension(type, params = {}, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
+    // Check for CAPTCHA block first
+    if (captchaDetected) {
+      return reject(new Error(
+        `CAPTCHA detected at ${captchaUrl}. Human approval needed. Check the CoDriver side panel.`
+      ));
+    }
+
     if (!extensionSocket || extensionSocket.readyState !== 1) {
       return reject(new Error(
         'CoDriver Chrome extension is not connected. ' +

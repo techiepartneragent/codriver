@@ -86,17 +86,35 @@ function renderPending(pending) {
   pendingBadge.textContent = pending.length;
   pendingBadge.classList.remove('hidden');
 
-  pendingList.innerHTML = pending.map(item => `
-    <div class="pending-card highlight" data-id="${item.id}">
-      <div class="pending-action-label">${item.action}</div>
-      <div class="pending-desc">${describeAction(item.action, item.params)}</div>
-      <div class="pending-timer">Queued ${timeAgo(item.queuedAt)} · auto-blocks in 30s</div>
+  pendingList.innerHTML = pending.map(item => {
+    if (item.type === 'CAPTCHA_DETECTED') {
+      return `
+        <div class="pending-card captcha-card" data-id="${item.requestId}">
+          <div class="captcha-header">
+            <span class="captcha-icon">🛑</span>
+            <span class="captcha-title">CAPTCHA Detected</span>
+          </div>
+          <div class="captcha-page">on: <strong>${item.title || item.url}</strong></div>
+          <div class="captcha-instruction">Solve the CAPTCHA in the browser, then click <strong>Approve</strong> to resume AI.</div>
+          <div class="action-btns">
+            <button class="btn btn-approve" data-id="${item.requestId}">✅ Approve — CAPTCHA Solved</button>
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+    <div class="pending-card highlight" data-id="${item.requestId}">
+      <div class="pending-action-label">${item.type}</div>
+      <div class="pending-desc">${describeAction(item.type, item.params || {})}</div>
+      <div class="pending-timer">Queued ${timeAgo(item.queuedAt || item.timestamp)} · auto-blocks in 30s</div>
       <div class="action-btns">
-        <button class="btn btn-approve" data-id="${item.id}">✅ Approve</button>
-        <button class="btn btn-block" data-id="${item.id}">❌ Block</button>
+        <button class="btn btn-approve" data-id="${item.requestId}">✅ Approve</button>
+        <button class="btn btn-block" data-id="${item.requestId}">❌ Block</button>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   // Attach click handlers
   pendingList.querySelectorAll('.btn-approve').forEach(btn => {
@@ -107,10 +125,10 @@ function renderPending(pending) {
   });
 }
 
-function sendDecision(id, type) {
-  chrome.runtime.sendMessage({ type, id });
+function sendDecision(requestId, type) {
+  chrome.runtime.sendMessage({ type, requestId });
   // Optimistically remove from UI
-  const card = pendingList.querySelector(`[data-id="${id}"]`);
+  const card = pendingList.querySelector(`[data-id="${requestId}"]`);
   if (card) {
     card.style.opacity = '0.4';
     card.style.pointerEvents = 'none';
