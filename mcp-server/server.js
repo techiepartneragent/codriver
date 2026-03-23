@@ -6,8 +6,6 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { WebSocketServer } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
-import { sendApprovalRequest, sendNotification, startCallbackPoller } from './telegram.js';
-
 // ─── CAPTCHA State ───────────────────────────────────────────────────────────
 let captchaDetected = false;
 let captchaUrl = null;
@@ -76,13 +74,6 @@ wss.on('connection', (ws) => {
             captchaDetected = true;
             captchaUrl = msg.url;
             process.stderr.write(`[CoDriver] CAPTCHA detected at: ${msg.url}\n`);
-            sendApprovalRequest({
-              requestId: msg.requestId || 'captcha-' + Date.now(),
-              type: 'CAPTCHA Detected',
-              url: msg.url,
-              title: msg.title,
-              description: 'Solve the CAPTCHA in Chrome, then tap Approve.'
-            });
             break;
           case 'CAPTCHA_RESOLVED':
             captchaDetected = false;
@@ -148,26 +139,6 @@ function sendToExtension(type, params = {}, timeoutMs = 30000) {
     extensionSocket.send(JSON.stringify(message));
   });
 }
-
-// ─── Telegram Callback Poller ────────────────────────────────────────────────
-
-startCallbackPoller(
-  (requestId) => {
-    process.stderr.write(`[CoDriver] Approved via Telegram: ${requestId}\n`);
-    if (captchaDetected) {
-      captchaDetected = false;
-      captchaUrl = null;
-      if (extensionSocket?.readyState === 1) {
-        extensionSocket.send(JSON.stringify({ type: 'CAPTCHA_RESOLVED', requestId }));
-      }
-    }
-    sendNotification('✅ Action approved — AI resuming!');
-  },
-  (requestId) => {
-    process.stderr.write(`[CoDriver] Blocked via Telegram: ${requestId}\n`);
-    sendNotification('❌ Action blocked.');
-  }
-);
 
 // ─── Tool Imports ────────────────────────────────────────────────────────────
 
