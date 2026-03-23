@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "codriver": {
+      "command": "node",
+      "args": ["/path/to/codriver/mcp-server/server.js"],
+      "description": "CoDriver — AI browser control via your real Chrome profile"
+    }
+  }
+}

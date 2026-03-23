@@ -1,0 +1,15 @@
+{
+  "name": "codriver-mcp-server",
+  "version": "0.1.0",
+  "description": "CoDriver local MCP server — browser control for Claude/OpenClaw",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "ws": "^8.0.0",
+    "uuid": "^9.0.0"
+  }
+}
