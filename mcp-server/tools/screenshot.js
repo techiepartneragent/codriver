@@ -10,10 +10,11 @@ export const screenshotTool = {
 
   async execute(_args, send) {
     const data = await send('SCREENSHOT', {}, 15000);
-    if (!data.imageData) {
+    // Bug 3 fix: read data.dataUrl (was data.imageData)
+    if (!data.dataUrl) {
       return 'Screenshot taken but no image data returned.';
     }
-    // Return as base64 image content
-    return `Screenshot captured (base64 PNG, ${data.imageData.length} chars):\ndata:image/png;base64,${data.imageData}`;
+    const base64 = data.dataUrl.replace(/^data:image\/png;base64,/, '');
+    return `Screenshot captured (base64 PNG, ${base64.length} chars):\n${data.dataUrl}`;
   },
 };

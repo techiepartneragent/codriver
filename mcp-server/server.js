@@ -19,13 +19,34 @@ wss.on('listening', () => {
   process.stderr.write(`[CoDriver] WebSocket server listening on ws://127.0.0.1:${WS_PORT}\n`);
 });
 
+// Bug 4: Auth token — hardcoded for POC
+const AUTH_TOKEN = 'codriver-dev-token-2026';
+process.stderr.write(`[CoDriver] Auth token: ${AUTH_TOKEN}\n`);
+
 wss.on('connection', (ws) => {
-  process.stderr.write('[CoDriver] Chrome extension connected\n');
-  extensionSocket = ws;
+  process.stderr.write('[CoDriver] Chrome extension connected — awaiting auth\n');
+  let authenticated = false;
 
   ws.on('message', (data) => {
     try {
       const msg = JSON.parse(data.toString());
+
+      // Handle auth handshake (first message must be AUTH)
+      if (!authenticated) {
+        if (msg.type === 'AUTH' && msg.token === AUTH_TOKEN) {
+          authenticated = true;
+          ws.send(JSON.stringify({ type: 'AUTH_OK' }));
+          process.stderr.write('[CoDriver] Extension authenticated\n');
+          // Set as active socket only after auth
+          extensionSocket = ws;
+        } else {
+          ws.send(JSON.stringify({ type: 'AUTH_FAIL', reason: 'Invalid token' }));
+          process.stderr.write('[CoDriver] Extension auth failed — closing\n');
+          ws.close();
+        }
+        return;
+      }
+
       const pending = pendingRequests.get(msg.requestId);
       if (pending) {
         clearTimeout(pending.timer);

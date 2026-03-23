@@ -6,10 +6,14 @@
 
 const WS_URL = 'ws://127.0.0.1:39571';
 const APPROVAL_TIMEOUT_MS = 30000;
-const WRITABLE_ACTIONS = ['NAVIGATE', 'CLICK', 'TYPE', 'SEARCH'];
+const WRITABLE_ACTIONS = ['NAVIGATE', 'CLICK', 'TYPE_TEXT', 'SEARCH'];
+
+// POC auth token — must match server's AUTH_TOKEN
+const AUTH_TOKEN = 'codriver-dev-token-2026';
 
 let ws = null;
 let reconnectTimer = null;
+let authenticated = false;
 
 // ─────────────────────────────────────────────
 // WebSocket lifecycle
@@ -27,14 +31,40 @@ function connect() {
 
   ws.onopen = () => {
     console.log('[CoDriver] WebSocket connected');
+    authenticated = false;
     setStatus('connected');
     clearTimeout(reconnectTimer);
+
+    // Send auth token as first message
+    chrome.storage.local.get('authToken').then(({ authToken }) => {
+      const token = authToken || AUTH_TOKEN;
+      send({ type: 'AUTH', token });
+      console.log('[CoDriver] Sent auth token');
+    });
   };
 
   ws.onmessage = async (event) => {
     let msg;
     try { msg = JSON.parse(event.data); } catch { return; }
     console.log('[CoDriver] Received:', msg);
+
+    // Handle auth response
+    if (msg.type === 'AUTH_OK') {
+      authenticated = true;
+      console.log('[CoDriver] Authenticated');
+      return;
+    }
+    if (msg.type === 'AUTH_FAIL') {
+      console.error('[CoDriver] Authentication failed');
+      ws.close();
+      return;
+    }
+
+    if (!authenticated) {
+      console.warn('[CoDriver] Ignoring message — not authenticated');
+      return;
+    }
+
     await handleCommand(msg);
   };
 
@@ -44,6 +74,7 @@ function connect() {
 
   ws.onclose = () => {
     console.log('[CoDriver] WebSocket disconnected');
+    authenticated = false;
     setStatus('disconnected');
     scheduleReconnect();
   };
@@ -71,51 +102,52 @@ async function setStatus(status) {
 // ─────────────────────────────────────────────
 
 async function handleCommand(msg) {
-  const { id, action, params = {} } = msg;
+  // Bug 1 fix: read msg.type and msg.requestId (not msg.action / msg.id)
+  const { requestId, type, params = {} } = msg;
 
   // Read-only commands — execute immediately
-  if (action === 'GET_CONTENT' || action === 'GET_URL') {
+  if (type === 'GET_CONTENT' || type === 'GET_URL') {
     try {
-      const result = await executeAction(action, params);
-      send({ id, success: true, data: result });
-      await appendLog({ id, action, params, status: 'executed', result });
+      const result = await executeAction(type, params);
+      send({ type: `${type}_RESULT`, requestId, success: true, data: result });
+      await appendLog({ requestId, type, params, status: 'executed', result });
     } catch (err) {
-      send({ id, success: false, error: err.message });
+      send({ type: `${type}_RESULT`, requestId, success: false, error: err.message });
     }
     return;
   }
 
   // SCREENSHOT — execute immediately (debugger shows its own warning bar)
-  if (action === 'SCREENSHOT') {
+  if (type === 'SCREENSHOT') {
     try {
-      const result = await executeAction(action, params);
-      send({ id, success: true, data: result });
-      await appendLog({ id, action, params, status: 'executed' });
+      const result = await executeAction(type, params);
+      send({ type: 'SCREENSHOT_RESULT', requestId, success: true, data: result });
+      await appendLog({ requestId, type, params, status: 'executed' });
     } catch (err) {
-      send({ id, success: false, error: err.message });
+      send({ type: 'SCREENSHOT_RESULT', requestId, success: false, error: err.message });
     }
     return;
   }
 
   // Write commands — queue for human approval
-  if (WRITABLE_ACTIONS.includes(action)) {
-    await queuePending({ id, action, params });
+  if (WRITABLE_ACTIONS.includes(type)) {
+    await queuePending({ requestId, type, params });
 
     // Wait for approval or timeout
-    const approved = await waitForApproval(id);
+    const approved = await waitForApproval(requestId);
     if (!approved) {
-      send({ id, success: false, blocked: true, reason: 'User denied or timed out' });
-      await appendLog({ id, action, params, status: 'blocked' });
+      send({ type: `${type}_RESULT`, requestId, success: false, blocked: true, reason: 'User denied or timed out' });
+      await appendLog({ requestId, type, params, status: 'blocked' });
       return;
     }
 
     try {
-      const result = await executeAction(action, params);
-      send({ id, success: true, data: result });
-      await appendLog({ id, action, params, status: 'approved', result });
+      const result = await executeAction(type, params);
+      send({ type: `${type}_RESULT`, requestId, success: true, data: result });
+      await appendLog({ requestId, type, params, status: 'approved', result });
     } catch (err) {
-      send({ id, success: false, error: err.message });
-      await appendLog({ id, action, params, status: 'error', error: err.message });
+      send({ type: `${type}_RESULT`, requestId, success: false, error: err.message });
+      await appendLog({ requestId, type, params, status: 'error', error: err.message });
     }
   }
 }
@@ -132,29 +164,29 @@ async function queuePending(item) {
   chrome.runtime.sendMessage({ type: 'PENDING_UPDATED' }).catch(() => {});
 }
 
-async function removePending(id) {
+async function removePending(requestId) {
   const { pendingActions = [] } = await chrome.storage.local.get('pendingActions');
-  const updated = pendingActions.filter(a => a.id !== id);
+  const updated = pendingActions.filter(a => a.requestId !== requestId);
   await chrome.storage.local.set({ pendingActions: updated });
 }
 
-function waitForApproval(id) {
+function waitForApproval(requestId) {
   return new Promise((resolve) => {
     const deadline = Date.now() + APPROVAL_TIMEOUT_MS;
 
     const checkApproval = async () => {
       const { approvals = {} } = await chrome.storage.local.get('approvals');
-      if (id in approvals) {
-        const decision = approvals[id];
+      if (requestId in approvals) {
+        const decision = approvals[requestId];
         // Clean up
-        delete approvals[id];
+        delete approvals[requestId];
         await chrome.storage.local.set({ approvals });
-        await removePending(id);
+        await removePending(requestId);
         resolve(decision === 'approve');
         return;
       }
       if (Date.now() > deadline) {
-        await removePending(id);
+        await removePending(requestId);
         resolve(false); // auto-block on timeout
         return;
       }
@@ -175,11 +207,11 @@ async function getActiveTab() {
   return tab;
 }
 
-async function executeAction(action, params) {
+async function executeAction(type, params) {
   const tab = await getActiveTab();
   const tabId = tab.id;
 
-  switch (action) {
+  switch (type) {
     case 'GET_URL':
       return { url: tab.url, title: tab.title };
 
@@ -220,7 +252,8 @@ async function executeAction(action, params) {
       return res;
     }
 
-    case 'TYPE': {
+    // Bug 2 fix: case 'TYPE_TEXT' (was 'TYPE')
+    case 'TYPE_TEXT': {
       const results = await chrome.scripting.executeScript({
         target: { tabId },
         func: (selector, text) => {
@@ -247,6 +280,7 @@ async function executeAction(action, params) {
           'Page.captureScreenshot',
           { format: 'png', quality: 80 }
         );
+        // Bug 3 fix (server side): return dataUrl field consistently
         return { dataUrl: `data:image/png;base64,${result.data}` };
       } finally {
         chrome.debugger.detach({ tabId }).catch(() => {});
@@ -271,7 +305,7 @@ async function executeAction(action, params) {
     }
 
     default:
-      throw new Error(`Unknown action: ${action}`);
+      throw new Error(`Unknown action: ${type}`);
   }
 }
 
@@ -307,7 +341,7 @@ async function appendLog(entry) {
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'APPROVE' || msg.type === 'BLOCK') {
     chrome.storage.local.get('approvals').then(({ approvals = {} }) => {
-      approvals[msg.id] = msg.type === 'APPROVE' ? 'approve' : 'block';
+      approvals[msg.requestId] = msg.type === 'APPROVE' ? 'approve' : 'block';
       chrome.storage.local.set({ approvals });
     });
     sendResponse({ ok: true });
