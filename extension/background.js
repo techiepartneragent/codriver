@@ -106,7 +106,7 @@ async function handleCommand(msg) {
   const { requestId, type, params = {} } = msg;
 
   // Read-only commands — execute immediately
-  if (type === 'GET_CONTENT' || type === 'GET_URL') {
+  if (type === 'GET_CONTENT' || type === 'GET_URL' || type === 'GET_STRUCTURE' || type === 'GET_TABS' || type === 'SWITCH_TAB' || type === 'OPEN_TAB') {
     try {
       const result = await executeAction(type, params);
       send({ type: `${type}_RESULT`, requestId, success: true, data: result });
@@ -218,11 +218,21 @@ async function executeAction(type, params) {
     case 'GET_CONTENT': {
       const results = await chrome.scripting.executeScript({
         target: { tabId },
-        func: () => ({
-          title: document.title,
-          url: location.href,
-          text: document.body ? document.body.innerText.slice(0, 15000) : '',
-        }),
+        func: () => {
+          const clean = (el) => el ? el.innerText.trim().slice(0, 15000) : null;
+          // Prefer main article content; strip nav/footer/ads
+          const article =
+            document.querySelector('article') ||
+            document.querySelector('main') ||
+            document.querySelector('[role="main"]') ||
+            document.querySelector('.content, .post-content, .entry-content, .article-body');
+          return {
+            title: document.title,
+            url: location.href,
+            articleText: clean(article),
+            text: document.body ? document.body.innerText.slice(0, 15000) : '',
+          };
+        },
       });
       return results[0]?.result || {};
     }
@@ -304,6 +314,49 @@ async function executeAction(type, params) {
       return results[0]?.result || {};
     }
 
+    case 'GET_STRUCTURE': {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const getText = (el) => el ? el.innerText.trim() : null;
+          const getMeta = (name) => {
+            const el = document.querySelector(`meta[name="${name}"], meta[property="${name}"]`);
+            return el ? el.getAttribute('content') : null;
+          };
+          return {
+            title: document.title,
+            h1: getText(document.querySelector('h1')),
+            h2s: [...document.querySelectorAll('h2')].map(e => e.innerText.trim()).filter(Boolean),
+            h3s: [...document.querySelectorAll('h3')].map(e => e.innerText.trim()).filter(Boolean),
+            links: [...document.querySelectorAll('a[href]')]
+              .slice(0, 50)
+              .map(e => ({ text: e.innerText.trim(), href: e.href }))
+              .filter(l => l.text),
+            wordCount: (document.body?.innerText || '').split(/\s+/).filter(Boolean).length,
+            publishDate: getMeta('article:published_time') || getMeta('date') || null,
+            author: getMeta('author') || getText(document.querySelector('[rel="author"], .author, .byline')) || null,
+            metaDescription: getMeta('description'),
+          };
+        },
+      });
+      return results[0]?.result || {};
+    }
+
+    case 'GET_TABS': {
+      const tabs = await chrome.tabs.query({});
+      return tabs.map(t => ({ id: t.id, title: t.title, url: t.url, active: t.active }));
+    }
+
+    case 'SWITCH_TAB': {
+      await chrome.tabs.update(params.tabId, { active: true });
+      return { success: true, tabId: params.tabId };
+    }
+
+    case 'OPEN_TAB': {
+      const newTab = await chrome.tabs.create({ url: params.url });
+      return { success: true, tabId: newTab.id, url: params.url };
+    }
+
     default:
       throw new Error(`Unknown action: ${type}`);
   }
@@ -359,6 +412,69 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 chrome.action.onClicked.addListener((tab) => {
   chrome.sidePanel.open({ windowId: tab.windowId });
+});
+
+// ─────────────────────────────────────────────
+// Context Menus
+// ─────────────────────────────────────────────
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: 'codriver-ask',
+    title: 'Ask CoDriver: "%s"',
+    contexts: ['selection'],
+  });
+  chrome.contextMenus.create({
+    id: 'codriver-summarize',
+    title: '🚗 Summarize this page',
+    contexts: ['page'],
+  });
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  const action =
+    info.menuItemId === 'codriver-ask'
+      ? { type: 'CONTEXT_QUERY', text: info.selectionText, url: info.pageUrl }
+      : { type: 'CONTEXT_SUMMARIZE', url: info.pageUrl };
+
+  chrome.storage.local.get(['actionLog'], (r) => {
+    const log = r.actionLog || [];
+    log.unshift({ ...action, timestamp: Date.now(), status: 'pending-user' });
+    chrome.storage.local.set({ actionLog: log });
+  });
+
+  chrome.sidePanel.open({ tabId: tab.id });
+});
+
+// ─────────────────────────────────────────────
+// Keyboard Shortcuts
+// ─────────────────────────────────────────────
+
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command === 'approve-action') {
+    const { pendingActions = [], approvals = {} } = await chrome.storage.local.get([
+      'pendingActions',
+      'approvals',
+    ]);
+    const first = pendingActions[0];
+    if (first) {
+      approvals[first.requestId] = 'approve';
+      await chrome.storage.local.set({ approvals });
+    }
+  } else if (command === 'block-action') {
+    const { pendingActions = [], approvals = {} } = await chrome.storage.local.get([
+      'pendingActions',
+      'approvals',
+    ]);
+    const first = pendingActions[0];
+    if (first) {
+      approvals[first.requestId] = 'block';
+      await chrome.storage.local.set({ approvals });
+    }
+  } else if (command === 'open-sidepanel') {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab) chrome.sidePanel.open({ tabId: tab.id });
+  }
 });
 
 // ─────────────────────────────────────────────

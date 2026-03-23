@@ -110,20 +110,28 @@ function sendToExtension(type, params = {}, timeoutMs = 30000) {
 
 import { navigateTool } from './tools/navigate.js';
 import { getContentTool } from './tools/get_content.js';
+import { getStructureTool } from './tools/get_structure.js';
 import { clickTool } from './tools/click.js';
 import { typeTextTool } from './tools/type_text.js';
 import { screenshotTool } from './tools/screenshot.js';
 import { searchTool } from './tools/search.js';
 import { getUrlTool } from './tools/get_url.js';
+import { listTabsTool } from './tools/list_tabs.js';
+import { switchToTabTool } from './tools/switch_to_tab.js';
+import { openNewTabTool } from './tools/open_new_tab.js';
 
 const TOOLS = [
   navigateTool,
   getContentTool,
+  getStructureTool,
   clickTool,
   typeTextTool,
   screenshotTool,
   searchTool,
   getUrlTool,
+  listTabsTool,
+  switchToTabTool,
+  openNewTabTool,
 ];
 
 // ─── MCP Server ──────────────────────────────────────────────────────────────

@@ -44,6 +44,30 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
       }
 
+      case 'GET_STRUCTURE': {
+        const getText = (el) => el ? el.innerText.trim() : null;
+        const getMeta = (name) => {
+          const el = document.querySelector(`meta[name="${name}"], meta[property="${name}"]`);
+          return el ? el.getAttribute('content') : null;
+        };
+        sendResponse({
+          success: true,
+          title: document.title,
+          h1: getText(document.querySelector('h1')),
+          h2s: [...document.querySelectorAll('h2')].map(e => e.innerText.trim()).filter(Boolean),
+          h3s: [...document.querySelectorAll('h3')].map(e => e.innerText.trim()).filter(Boolean),
+          links: [...document.querySelectorAll('a[href]')]
+            .slice(0, 50)
+            .map(e => ({ text: e.innerText.trim(), href: e.href }))
+            .filter(l => l.text),
+          wordCount: (document.body?.innerText || '').split(/\s+/).filter(Boolean).length,
+          publishDate: getMeta('article:published_time') || getMeta('date') || null,
+          author: getMeta('author') || getText(document.querySelector('[rel="author"], .author, .byline')) || null,
+          metaDescription: getMeta('description'),
+        });
+        break;
+      }
+
       default:
         sendResponse({ success: false, error: `Unknown message type: ${msg.type}` });
     }

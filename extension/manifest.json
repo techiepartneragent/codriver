@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CoDriver — Browser Co-Pilot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI + Human shared browser control with approve/block UI",
   "permissions": [
     "tabs",
@@ -11,7 +11,8 @@
     "sidePanel",
     "debugger",
     "webNavigation",
-    "notifications"
+    "notifications",
+    "contextMenus"
   ],
   "host_permissions": ["<all_urls>"],
   "background": {
@@ -39,5 +40,19 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
+  },
+  "commands": {
+    "approve-action": {
+      "suggested_key": { "default": "Alt+A" },
+      "description": "Approve pending AI action"
+    },
+    "block-action": {
+      "suggested_key": { "default": "Alt+X" },
+      "description": "Block pending AI action"
+    },
+    "open-sidepanel": {
+      "suggested_key": { "default": "Alt+C" },
+      "description": "Open CoDriver panel"
+    }
   }
 }
