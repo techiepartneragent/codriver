@@ -4,6 +4,15 @@
  * Handles approve/block decisions, mode toggle, live status.
  */
 
+// Keep service worker alive by maintaining an open port
+const bgPort = chrome.runtime.connect({ name: 'sidepanel-keepalive' });
+bgPort.onDisconnect.addListener(() => {
+  // Side panel lost connection to background - try reconnecting
+  setTimeout(() => {
+    try { chrome.runtime.connect({ name: 'sidepanel-keepalive' }); } catch(e) {}
+  }, 1000);
+});
+
 const statusDot = document.getElementById('statusDot');
 const statusText = document.getElementById('statusText');
 const pendingList = document.getElementById('pendingList');

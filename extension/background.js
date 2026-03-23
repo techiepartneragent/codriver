@@ -15,6 +15,18 @@ let ws = null;
 let reconnectTimer = null;
 let authenticated = false;
 
+// Keep-alive port from side panel
+const openPorts = new Set();
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === 'sidepanel-keepalive') {
+    openPorts.add(port);
+    port.onDisconnect.addListener(() => {
+      openPorts.delete(port);
+    });
+  }
+});
+
 // Ensure keepAlive alarm exists every time SW starts (not just onInstalled)
 chrome.alarms.get('keepAlive', (alarm) => {
   if (!alarm) {
