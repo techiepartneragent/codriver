@@ -3,7 +3,11 @@
     "codriver": {
       "command": "node",
       "args": ["/path/to/codriver/mcp-server/server.js"],
-      "description": "CoDriver — AI browser control via your real Chrome profile"
+      "description": "CoDriver — AI browser control via your real Chrome profile",
+      "env": {
+        "TELEGRAM_BOT_TOKEN": "your_token_here",
+        "TELEGRAM_CHAT_ID": "your_chat_id_here"
+      }
     }
   }
 }
