@@ -7,12 +7,11 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
 export async function sendApprovalRequest({ requestId, type, url, title, description }) {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
 
-  const text =
-    `🛑 *CoDriver needs you!*\n\n` +
+  const text = `🛑 *CoDriver needs you!*\n\n` +
     `*Type:* ${type}\n` +
     `*Page:* ${title || url}\n` +
     `${description || ''}\n\n` +
-    `Solve it in Chrome, then tap Approve.`;
+    `Reply *approve* to resume AI, or *block* to cancel.`;
 
   await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: 'POST',
@@ -20,13 +19,7 @@ export async function sendApprovalRequest({ requestId, type, url, title, descrip
     body: JSON.stringify({
       chat_id: TELEGRAM_CHAT_ID,
       text,
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [[
-          { text: '✅ Approve', callback_data: `approve:${requestId}` },
-          { text: '❌ Block', callback_data: `block:${requestId}` }
-        ]]
-      }
+      parse_mode: 'Markdown'
     })
   });
 }
@@ -40,7 +33,7 @@ export async function sendNotification(text) {
   });
 }
 
-// Long-poll for callback_query (button taps)
+// Long-poll for text message replies (approve / block)
 export function startCallbackPoller(onApprove, onBlock) {
   if (!TELEGRAM_BOT_TOKEN) return;
   let offset = 0;
@@ -48,31 +41,23 @@ export function startCallbackPoller(onApprove, onBlock) {
   async function poll() {
     try {
       const res = await fetch(
-        `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${offset}&timeout=30&allowed_updates=["callback_query"]`
+        `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${offset}&timeout=30&allowed_updates=["message"]`
       );
       const data = await res.json();
       if (data.ok) {
         for (const update of data.result) {
           offset = update.update_id + 1;
-          const cb = update.callback_query;
-          if (!cb) continue;
+          const msg = update.message;
+          if (!msg || !msg.text) continue;
+          // Only accept from the configured chat
+          if (String(msg.chat.id) !== String(TELEGRAM_CHAT_ID)) continue;
 
-          // Answer the callback to remove loading spinner
-          await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              callback_query_id: cb.id,
-              text: cb.data.startsWith('approve') ? '✅ Approved!' : '❌ Blocked'
-            })
-          });
-
-          const [action, requestId] = cb.data.split(':');
-          if (action === 'approve') onApprove(requestId);
-          if (action === 'block') onBlock(requestId);
+          const text = msg.text.trim().toLowerCase();
+          if (text === 'approve') onApprove('pending');
+          else if (text === 'block') onBlock('pending');
         }
       }
-    } catch (e) { /* ignore network errors */ }
+    } catch (e) { /* ignore */ }
     setTimeout(poll, 1000);
   }
   poll();
