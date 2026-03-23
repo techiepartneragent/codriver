@@ -85,6 +85,23 @@ function scheduleReconnect() {
   reconnectTimer = setTimeout(connect, 3000);
 }
 
+// ─────────────────────────────────────────────
+// Keep-alive via chrome.alarms (MV3 SW can be terminated after ~30s)
+// ─────────────────────────────────────────────
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'keepAlive') {
+    // Accessing chrome.storage wakes the service worker
+    chrome.storage.local.get('status');
+    // Ensure WebSocket is connected
+    connect();
+    // Send ping if connected to keep WS alive
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      send({ type: 'PING', requestId: 'ping-' + Date.now() });
+    }
+  }
+});
+
 function send(obj) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(obj));
@@ -480,6 +497,9 @@ chrome.action.onClicked.addListener((tab) => {
 // ─────────────────────────────────────────────
 
 chrome.runtime.onInstalled.addListener(() => {
+  // Keep-alive alarm — fires every ~20 seconds to prevent SW termination
+  chrome.alarms.create('keepAlive', { periodInMinutes: 0.33 });
+
   chrome.contextMenus.create({
     id: 'codriver-ask',
     title: 'Ask CoDriver: "%s"',

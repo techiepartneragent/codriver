@@ -64,6 +64,9 @@ wss.on('connection', (ws) => {
       } else {
         // Handle unsolicited messages from extension
         switch (msg.type) {
+          case 'PING':
+            ws.send(JSON.stringify({ type: 'PONG', requestId: msg.requestId }));
+            break;
           case 'CAPTCHA_DETECTED':
             captchaDetected = true;
             captchaUrl = msg.url;
